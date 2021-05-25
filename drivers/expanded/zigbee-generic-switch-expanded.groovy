@@ -65,9 +65,9 @@ metadata {
         command "toggle"
 
         fingerprint deviceJoinName: "Tuya Light Switch", profileId:"0104", endpointId:"01", inClusters:"0000,0003,0006", outClusters:"0019", model:"TS0011", manufacturer:"TUYATEC-j5khr9vo"
-
-        fingerprint model:"TS0601", manufacturer:"_TZE200_oisqyl4o", profileId:"0104", endpointId:"01", inClusters:"0000,0004,0005,EF00", outClusters:"0019,000A", application:"40"
-
+        // DeathWh1sper: adjusted bellow to my Tuya Switch fingerprint
+        fingerprint model:"TS0601", manufacturer:"_TZE200_amp6tsvy", profileId:"0104", endpointId:"01", inClusters:"0000,0004,0005,EF00", outClusters:"0019,000A", application:"42"        
+        
         fingerprint model:"FNB56-ZSW01LX2.0", manufacturer:"FeiBit", profileId:"C05E", endpointId:"0B", inClusters:"0000,0004,0003,0006,0005,1000,0008", outClusters:"0019"
 
         fingerprint model:"FNB56-ZSW02LX2.0", manufacturer:"FeiBit", profileId:"C05E", endpointId:"0B", inClusters:"0000,0004,0003,0006,0005,1000,0008", outClusters:"0019"
@@ -267,11 +267,48 @@ ArrayList<String> parse(String description) {
                     logging("MULTISTATE CLUSTER EVENT", 1)
                     sendlastCheckinEvent(minimumMinutesToRepeat=25)
                     break
-                case "EF00":
+                case "EF00": // DeathWh1sper: Tuya command cluster event
                     logging("ON/OFF CATCHALL EF00 CLUSTER EVENT - description:${description} | parseMap:${msgMap}", 100)
-                    sendOnOffEvent(Integer.parseInt(msgMap['sourceEndpoint'], 16), Integer.parseInt(msgMap['data'].last(), 16) == 1)
+                   
+                    // DeathWh1sper: Not calling the event update function but implementing here a modified version of the event update                    
+
+                    logging("DeathWh1sper:  EXTRA INFO - sourceEndpoint: ${msgMap['sourceEndpoint']} | data: ${Integer.parseInt(msgMap['data'].last(), 16)}", 1)
+                    // DeathWh1sper: for the MOES tuya zigbee it was returning 1 for ON, 0 for off               
+
+                    if (msgMap['data'][3] == null) break // DeathWh1sper: Exit the loop is not an on/off command
+                    Integer endpoint = Integer.parseInt(msgMap['sourceEndpoint'], 16) // extract the endpoint
+                    Integer origin = Integer.parseInt(msgMap['data'][3], 16) // extract the command origin. Should be 1 to update on/off
+                    logging("Command Origin:$origin", 1) //log with debug enabled just to track the parameter
+                    Integer state = Integer.parseInt(msgMap['data'].last(), 16) // extract the command: 0 for off and 1 for on               
+                    if (((origin == 1) && (state == 2)) || (origin != 1 )) { break } // DeathWh1sper: exit the case loop if not On / Off operation command                
+                    logging("sendOnOffEvent(endpoint=$endpoint, state=$state)", 1)
+                    if(useMultiEP() == true) {
+                        if(state == 1) {
+                            getChildDevice(buildChildDeviceIdFromEndpoint(endpoint))?.parse([[name: "switch", value: "on", isStateChange: false, descriptionText: "Switch turned ON"]])
+                            sendEvent(name:"switch", value: "on", isStateChange: false, descriptionText: "Switch was turned on")
+                        } else {
+                            if(state == 0) {
+                                getChildDevice(buildChildDeviceIdFromEndpoint(endpoint))?.parse([[name: "switch", value: "off", isStateChange: false, descriptionText: "Switch turned OFF"]])
+                                if(allChildrenOffExceptSpecifiedEndpoint(endpoint) == true) {
+                                    sendEvent(name:"switch", value: "off", isStateChange: false, descriptionText: "Switch was turned off")
+                                    }
+                                }
+                            }
+                        } else {
+                         if(state == 0) {
+                            sendEvent(name:"switch", value: "off", isStateChange: false, descriptionText: "Switch was turned off")
+                         } else {
+                                if(state == 1) {
+                                    sendEvent(name:"switch", value: "on", isStateChange: false, descriptionText: "Switch was turned on")
+                                } 
+                           } 
+                        }
+                
+                    // DeathWh1sper: not using the original call bellow
+                    //sendOnOffEvent(Integer.parseInt(msgMap['sourceEndpoint'], 16), Integer.parseInt(msgMap['data'].last(), 16) == 1 )
                     sendlastCheckinEvent(minimumMinutesToRepeat=25)
                     break
+                
                 case "8021":
                     logging("BIND RESPONSE CLUSTER EVENT", 1)
                     sendlastCheckinEvent(minimumMinutesToRepeat=25)
@@ -423,7 +460,7 @@ void onOffCommand(Integer command) {
             cmd += [zigbeeCommand(getEndpointFromChildId(child.deviceNetworkId), 0x0006, command)[0]]
         }
     } else if (getDeviceDataByName('model') == 'TS0601'){
-      String fullData = "00" + zigbee.convertToHexString(rand(256), 2) + "0101" + "00" + "01" + zigbee.convertToHexString(command, 2)
+      String fullData = "00" + zigbee.convertToHexString((Math.abs(new Random().nextInt()) % 256), 2) + "0101" + "00" + "01" + zigbee.convertToHexString(command, 2)
       logging("Sending on/off to cluster EF00: " + command + "("+ fullData+")", 100)
       cmd += zigbee.command(0xEF00, 0x00, fullData)
     } else {
@@ -1485,7 +1522,6 @@ String styling_getLogo() {
       top: 10px;
       right: 10px;
     }
-
     @media screen and (max-device-width:450px), screen and (max-width:450px) {
       #ohla_logo {
         width: 120px;
